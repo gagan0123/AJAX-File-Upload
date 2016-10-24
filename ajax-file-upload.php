@@ -3,19 +3,26 @@
 /*
 Plugin Name: AJAX File Upload
 Plugin URI: 
-Description: AJAX file Upload - fast and easy front-end WordPress file uploader with shortcodes
+Description: AJAX File Upload - fast and easy front-end WordPress file uploader with shortcodes
 Author: Samuel Elh
-Version: 0.1
+Version: 0.1.1.1
 Author URI: http://samelh.com
 */
 
-if ( ! class_exists('AJAX_file_upload') ) :
+if ( ! class_exists('AJAX_file_upload') ) :;
 
 class AJAX_file_upload
 {
 	protected static $instance = null;
 
 	public function __construct() {
+
+		/**
+		  * Sets some of the default settings
+		  * If you are using this in a custom project where you don't want users to access
+		  * the settings page, set the default settings as per your requirements and copy
+		  * the plugin folder to your project, and then delete includes/admin.php file
+		  */
 		
 		$settings = new stdClass();
 		$settings->max_size = 2000;
@@ -33,13 +40,12 @@ class AJAX_file_upload
 		add_action( 'wp_ajax_nopriv_ajax_file_upload', array( &$this, 'ajax' ) );
 		add_action( 'wp_enqueue_scripts', array( &$this, 'enqueue_scripts' ) );
 		add_action( 'wp_footer', array( &$this, 'wp_footer' ) );
-
 		if( file_exists( $this->template_path( 'includes/admin.php', true ) ) ) {
 			require $this->template_path( 'includes/admin.php', true );
 		}
-
 		add_filter( "plugin_action_links_" . plugin_basename(__FILE__), array( &$this, 'push_admin_links' ) );
-
+		add_filter( "afu_shortcode_template_content", array( &$this, 'filter_shortcode_template' ), 0, 2 );
+	
 	}
 
 	public static function shortcode( $atts, $custom = false ) {
@@ -62,24 +68,25 @@ class AJAX_file_upload
 
 		$a = shortcode_atts( array(
 
-			'unique_identifier'						=> '',
-			'max_size' 								=> '',
-			'allowed_extensions' 					=> '',
-	        'permissions' 							=> '',
-	        'on_success_alert'						=> '',
+		'unique_identifier'				=> '',
+		'max_size' 					=> '',
+		'allowed_extensions' 				=> '',
+	        'permissions' 					=> '',
+	        'on_success_alert'				=> '',
 	        'on_success_set_input_value'			=> '',
-	        'on_fail_alert'							=> '',
-	        'set_background_image'					=> '',
-	        'set_image_source'						=> '',
-	        'disallow_remove_button'				=> '',
-	        'disallow_reupload'						=> '',
-	        'upload_button_value'					=> '',
-	        'select_file_button_value'				=> '',
-	        'remove_file_button_value'				=> '',
-	        'show_preloader'						=> '',
-	        'default_loading_text'					=> '',
+	        'on_fail_alert'					=> '',
+	        'set_background_image'				=> '',
+	        'set_image_source'				=> '',
+	        'disallow_remove_button'			=> '',
+	        'disallow_reupload'				=> '',
+	        'upload_button_value'				=> '',
+	        'select_file_button_value'			=> '',
+	        'remove_file_button_value'			=> '',
+	        'show_preloader'				=> '',
+	        'default_loading_text'				=> '',
 	        'on_success_dialog_prompt_value'		=> '',
 	        'on_fail_alert_error_message'			=> '',
+	        'hide_if_no_permissions'			=> '',
 
 	    ), $atts );
 
@@ -189,6 +196,10 @@ class AJAX_file_upload
 					return true;
 					break;
 
+				case 'hide_if_no_permissions':
+					return false;
+					break;
+
 				default:
 					break;
 
@@ -211,10 +222,10 @@ class AJAX_file_upload
 		$args = wp_handle_upload( $file, array('test_form' => false ) );
 		
 		if( isset( $args['error'] ) || isset( $args['upload_error_handler'] ) ) {
-			return false;
+			return array('success'=>false, 'error_message'=>$args['error']);
 		} else {
 			do_action('afu_after_upload_done', $args);
-			return apply_filters( 'afu_returned_file_url', $args['url'], $args );
+			return array('success'=>true, 'url'=>apply_filters( 'afu_returned_file_url', $args['url'], $args ));
 		}
 
 		return;
@@ -317,14 +328,14 @@ class AJAX_file_upload
 
 				if( ! $bail ) {
 					$media = $this->process_file( $file );
-					$response['success'] = false !== $media;
-					$response['media_uri'] = $media;
+					$response['success'] = false !== $media['success'];
+					$response['media_uri'] = $media['url'];
 				} else {
 					$response['success'] = false;
 				}
 
 				if( false === $response['success'] && empty( $response['error_message'] ) ) {
-					$response['error_message'] = $this->translate("Error occured while processing your file" );
+					$response['error_message'] = $media['error_message'];//$this->translate("Error occured while processing your file" );
 				}
 
 				$response["settings"] = $settings;
@@ -332,6 +343,8 @@ class AJAX_file_upload
 
 			}
 		}
+
+		$response["error_message"] = str_replace("&quot;", "\"", $response["error_message"]);
 
 		header("Content-type: application/json; charset=utf-8");
 		echo json_encode( $response );
@@ -410,6 +423,27 @@ class AJAX_file_upload
 		array_push( $links, '<a href="index.php?page=afu-about">' . __( 'About' ) . '</a>' );
 
 		return $links;
+
+	}
+
+	public function filter_shortcode_template( $content, $a ) {
+		
+		if( ! empty( $a["hide_if_no_permissions"] ) && ! empty( $a["permissions"] ) ) {
+			if( "all" == $a["permissions"] ) {
+				$content = apply_filters( "afu_no_permissions_no_content_markup", "" );
+			}
+			elseif ( "logged_in" == $a["permissions"] ) {
+				if( ! is_user_logged_in() ) {
+					$content = apply_filters( "afu_no_permissions_no_content_markup", "" );
+				}
+			}
+			else {
+				if( ! in_array( $a["permissions"], wp_get_current_user()->roles ) ) {
+					$content = apply_filters( "afu_no_permissions_no_content_markup", "" );
+				}
+			}
+		}
+		return $content;
 
 	}
 
