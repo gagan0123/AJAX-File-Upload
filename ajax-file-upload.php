@@ -344,7 +344,11 @@ class AJAX_file_upload
 			}
 		}
 
-		$response["error_message"] = str_replace("&quot;", "\"", $response["error_message"]);
+		if(isset($response["error_message"])){
+			$response["error_message"] = str_replace("&quot;", "\"", $response["error_message"]);
+		} else{
+			$response["error_message"] = '';
+		}
 
 		header("Content-type: application/json; charset=utf-8");
 		echo json_encode( $response );
